@@ -1,0 +1,96 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: catalog-indexer
+  namespace: search-app
+  labels:
+    app: catalog-indexer
+    version: "1.0.0"
+spec:
+  # Don't retry on failure - fix the issue and re-run manually
+  backoffLimit: 1
+  # Clean up completed job after 1 hour
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: catalog-indexer
+    spec:
+      restartPolicy: Never
+
+      # Give the indexer enough time to download dataset + index 50K products
+      # Embedding generation takes ~2-3ms per product = ~150s for 50K
+      # Download adds ~5 min depending on network
+      activeDeadlineSeconds: 3600  # 1 hour max
+
+      containers:
+        - name: catalog-indexer
+          image: ghcr.io/YOUR_GITHUB_USERNAME/search-catalog-indexer:latest
+          imagePullPolicy: Always
+
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "3Gi"    # DJL model + dataset in memory
+              cpu: "2000m"
+
+          env:
+            - name: ES_HOST
+              value: "elasticsearch-es-http.elasticsearch.svc.cluster.local"
+            - name: ES_PORT
+              value: "9200"
+            - name: ES_SCHEME
+              value: "http"
+            - name: ES_INDEX
+              value: "products"
+            - name: ES_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: es-credentials
+                  key: username
+            - name: ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: es-credentials
+                  key: password
+            - name: MAX_RECORDS
+              value: "50000"
+            - name: CHUNK_SIZE
+              value: "500"
+            - name: DATASET_PATH
+              value: "/tmp/amazon-products.parquet"
+            - name: JAVA_OPTS
+              value: "-Xms512m -Xmx2g -XX:+UseG1GC"
+
+          volumeMounts:
+            - name: dataset-cache
+              mountPath: /tmp
+            - name: djl-cache
+              mountPath: /root/.djl.ai
+
+      volumes:
+        - name: dataset-cache
+          emptyDir:
+            sizeLimit: 500Mi   # Parquet file is ~150MB
+        - name: djl-cache
+          emptyDir:
+            sizeLimit: 500Mi   # all-MiniLM-L6-v2 model is ~80MB
+
+---
+# Secret for ES credentials - create this before running the job
+# kubectl create secret generic es-credentials \
+#   --from-literal=username=elastic \
+#   --from-literal=password=changeme \
+#   -n search-app
+apiVersion: v1
+kind: Secret
+metadata:
+  name: es-credentials
+  namespace: search-app
+type: Opaque
+stringData:
+  username: elastic
+  password: changeme   # Change this in production
+

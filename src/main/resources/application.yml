@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: search-catalog-indexer
+
+  # Spring Batch - use H2 in-memory for job metadata (no external DB needed)
+  datasource:
+    url: jdbc:h2:mem:batch;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  batch:
+    job:
+      enabled: true               # Run job on startup
+      name: catalogIndexingJob
+    jdbc:
+      initialize-schema: always   # Let Spring Batch create its tables in H2
+
+# Elasticsearch connection
+elasticsearch:
+  host: ${ES_HOST:localhost}
+  port: ${ES_PORT:9200}
+  username: ${ES_USERNAME:elastic}
+  password: ${ES_PASSWORD:changeme}
+  scheme: ${ES_SCHEME:http}
+  index-name: ${ES_INDEX:products}
+
+# Indexer settings
+indexer:
+  dataset:
+    local-path: ${DATASET_PATH:/tmp/amazon-products.parquet}
+    max-records: ${MAX_RECORDS:50000}
+    skip-download: ${SKIP_DOWNLOAD:false}
+  batch:
+    chunk-size: ${CHUNK_SIZE:500}
+  bulk:
+    max-retries: 3
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging - structured JSON for production, readable for local dev
+logging:
+  level:
+    root: INFO
+    com.search: DEBUG
+    org.springframework.batch: INFO
+    org.apache.parquet: WARN
+    org.apache.hadoop: WARN
+    ai.djl: INFO
+
